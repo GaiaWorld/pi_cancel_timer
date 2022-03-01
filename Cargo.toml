@@ -1,14 +1,18 @@
 [package]
 name = "pi_cancel_timer"
 version = "0.1.0"
-authors = ["suncy <suncy@gmail.com>"]
-edition = "2018"
+authors = ["suncy <530739162@qq.com>"]
+edition = "2021"
+description = "Cancellable timer based on wheel structure"
+repository = "https://github.com/GaiaWorld/pi_cancel_timer.git"
+license = "MIT OR Apache-2.0"
+keywords = ["pi", "timer", "calcel", "pi_cancel_timer"]
 
 [dependencies]
-pi_ext_heap = {path="../pi_ext_heap"}
+pi_ext_heap = "0.1"
 slotmap = "1.0"
-pi_slot_wheel = {path="../pi_slot_wheel"}
-pi_slot_deque = {path="../pi_slot_deque"}
+pi_slot_wheel = "0.1"
+pi_slot_deque = "0.1"
 
 [dev-dependencies]
 pcg_rand = "0.13"
