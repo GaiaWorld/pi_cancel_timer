@@ -97,6 +97,20 @@ impl<T, const N0: usize, const N: usize, const L: usize> Timer<T, N0, N, L> {
             self.roll();
         }
     }
+    /// 弹出定时间内的一个关键字和定时任务
+    /// * @return `Option<(TimerKey, T)>` 弹出的关键字和定时元素
+    pub fn pop_kv(&mut self, now: u64) -> Option<(TimerKey, T)> {
+        loop {
+            if let Some((key, r)) = self.wheel.pop_kv(&mut self.slot) {
+                self.remove_count += 1;
+                return Some((key, r.el))
+            }
+            if self.roll_count >= now {
+                return None
+            }
+            self.roll();
+        }
+    }
     /// 判断指定时间内是否还有定时任务
     pub fn is_ok(&mut self, now: u64) -> bool {
         loop {
