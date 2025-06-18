@@ -57,6 +57,15 @@ impl<T, const N0: usize, const N: usize, const L: usize> Timer<T, N0, N, L> {
     pub fn roll_count(&self) -> u64 {
         self.roll_count
     }
+
+     /// 在当前时间之后，放入一个定时任务
+    pub fn push_time(&mut self, time: u64, el: T) -> TimerKey {
+        self.push(match time.checked_sub(self.roll_count) {
+            Some(r) => r as usize,
+            _ => 0,
+        }, el)
+    }
+
     /// 放入一个定时任务
     pub fn push(&mut self, timeout: usize, el: T) -> TimerKey {
         self.add_count += 1;
