@@ -6,7 +6,6 @@ use pi_ext_heap::ExtHeap;
 use pi_null::Null;
 use pi_slot_deque::{LinkedNode, Slot};
 use pi_slot_wheel::{Result, TimeoutItem, TimerKey, Wheel};
-use slotmap::{Key};
 
 
 /// 可撤销的定时器
@@ -59,7 +58,15 @@ impl<T, const N0: usize, const N: usize, const L: usize> Timer<T, N0, N, L> {
         self.roll_count
     }
 
-     /// 在当前时间之后，放入一个定时任务
+    /// 判断指定时间任务是否为空
+    pub fn is_null(&mut self, time: u64) -> Option<bool> {
+        self.wheel.is_null(match time.checked_sub(self.roll_count) {
+            Some(r) => r as usize,
+            _ => 0,
+        })
+    }
+
+    /// 在当前时间之后，放入一个定时任务
     pub fn push_time(&mut self, time: u64, el: T) -> TimerKey {
         self.push(match time.checked_sub(self.roll_count) {
             Some(r) => r as usize,
@@ -80,7 +87,7 @@ impl<T, const N0: usize, const N: usize, const L: usize> Timer<T, N0, N, L> {
                     TimerKey::null(),
                 ));
                 // 将绝对时间和键放入堆中
-                let loc = self.heap.push(
+                let _loc = self.heap.push(
                     Reverse((timeout, key)),
                     &mut self.slot,
                     set_index::<T, N0, N, L>,
