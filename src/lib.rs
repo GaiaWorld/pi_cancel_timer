@@ -59,7 +59,7 @@ impl<T, const N0: usize, const N: usize, const L: usize> Timer<T, N0, N, L> {
     }
 
     /// 判断指定时间任务是否为空
-    pub fn is_null(&mut self, time: u64) -> Option<bool> {
+    pub fn is_null(&self, time: u64) -> Option<bool> {
         self.wheel.is_null(match time.checked_sub(self.roll_count) {
             Some(r) => r as usize,
             _ => 0,
