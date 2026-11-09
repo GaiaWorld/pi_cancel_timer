@@ -2,7 +2,8 @@
 //!
 //! 所有时间参数均为调用方同一时钟原点下的 `u64` 毫秒值，本库不读取系统时钟。
 //! 使用 `Timer::new` 指定起点，随后由 `pop` 按传入的时间推进内部刻度。
-//! 近期任务放入时间轮，远期任务在堆中按绝对到期时间排序；迁入轮时取消键保持不变。
+//! 所有任务实体保存在共享存储中；远期任务由外部队列组织，堆仅保存到期时间与键。
+//! 时间轮完成完整周期时，按堆顶键将进入覆盖范围的任务迁入轮，取消键保持不变。
 //!
 //! # 示例
 //!
@@ -299,6 +300,29 @@ mod tests {
         assert_eq!(timer.pop(116), None);
         assert_eq!(timer.cancel(key), Some("moved"));
         assert_eq!(timer.pop(117), None);
+    }
+
+    #[test]
+    fn overflow_tasks_migrate_in_deadline_order_with_stable_keys() {
+        let mut timer: Timer<&str, 4, 2, 1> = Timer::new(100);
+        let late = timer.schedule_at(125, "late");
+        let early = timer.schedule_at(109, "early");
+        let middle = timer.schedule_at(114, "middle");
+        let tail = timer.schedule_at(130, "tail");
+        assert_eq!(timer.count(), 4);
+        assert_eq!(timer.pop(108), None);
+        assert_eq!(timer.external.len(), 2);
+        assert_eq!(timer.pop(109), Some("early"));
+        assert_eq!(timer.cancel(early), None);
+        assert_eq!(timer.cancel(middle), Some("middle"));
+        assert_eq!(timer.count(), 2);
+        assert_eq!(timer.pop(124), None);
+        assert_eq!(timer.pop(125), Some("late"));
+        assert_eq!(timer.cancel(late), None);
+        assert_eq!(timer.pop(129), None);
+        assert_eq!(timer.cancel(tail), Some("tail"));
+        assert_eq!(timer.pop(140), None);
+        assert_eq!(timer.count(), 0);
     }
 
     #[test]
