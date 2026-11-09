@@ -4,7 +4,6 @@
 /.cargo
 /.idea
 /Cargo.lock
-/vendor/pi_slot_wheel/Cargo.lock
 /*.log
 /.codex
 /docs

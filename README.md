@@ -1,6 +1,21 @@
 # pi_cancel_timer
 
-基于多层时间轮与最小堆的可取消定时器。近期任务放在时间轮，超出轮覆盖范围的任务放在堆中；取消远期任务时立即释放任务值，堆中的索引惰性清理，并在积累过多时批量回收。
+基于多层时间轮（timing wheel）与最小堆（min-heap）的可取消定时器（cancellable timer）。所有任务（task）保存在共享存储（shared storage）中，近期任务（task）由时间轮（timing wheel）组织，远期任务（task）由外部队列（external queue）组织；堆（heap）只保存远期任务（task）的到期时间（deadline）与键（key）。取消（cancel）远期任务（task）时立即释放任务值（task value），堆（heap）中的索引（index）采用惰性清理（lazy cleanup），并在失效条目（stale entry）积累过多时过滤（filter）并重建（rebuild）堆（heap）。
+
+## 0.7 版本兼容性（version compatibility）
+
+本次公开接口（API）重构（refactoring）包含破坏性变更（breaking change），以 `pi_cancel_timer 0.7.0` 发布（publish）。采用 `pi_cancel_timer = "0.4"`、`"0.5"` 或 `"0.6"` 的下游依赖约束（dependency requirement）不会自动选择 `0.7.0`；使用更宽版本范围（version range）的调用方（caller）需自行核对升级范围。
+
+迁移（migration）到 `pi_cancel_timer = "0.7"` 时，需要调整旧接口（API）的调用（call）：
+
+| 原 `nightly-1.98.0` 的旧接口（API） | 0.7 中的迁移要求（migration requirement） |
+| --- | --- |
+| `push(timeout: usize, value)` | 已移除；使用 `schedule_after(delay_ms: u64, value)`，时间单位明确为毫秒（millisecond）。 |
+| `push_time(time: u64, value)` | 已移除；使用 `schedule_at(deadline_ms: u64, value)`，截止时间（deadline）与起点必须来自同一时钟（clock）。 |
+| `pop_kv(now)` | 已移除；`pop(now_ms)` 只返回任务值（task value），不返回键（key）。 |
+| `is_ok(now)`、`is_null(time)` | 已移除；`has_task_by(now_ms)` 不推进内部时间（internal time），并允许提前返回 `true`，不能等价替换旧查询（query）后继续假定 `pop` 必定有值。 |
+| `add_count()`、`remove_count()` | 累计统计（cumulative statistics）已移除；`count()` 仅表示当前有效任务数（task count）。 |
+| `roll_count()`、公开的 `roll()` | 已移除；`current_time_ms()` 返回绝对时间（absolute time）的毫秒值（millisecond value），内部时间（internal time）由 `pop` 推进。 |
 
 ## 时钟与精度
 
@@ -31,6 +46,18 @@ assert_eq!(timer.cancel(early), None); // 已弹出的键不再有效
 assert_eq!(timer.count(), 0);
 ```
 
+## 轮外任务（task）的存储（storage）与迁入（migration）
+
+剩余延迟（remaining delay）小于 `N0 * N^L` 个刻度（tick）的任务（task）直接进入时间轮（timing wheel）；大于或等于该范围的任务（task）进入 `external` 队列（queue），并在堆（heap）中保存对齐后的绝对截止时间（aligned absolute deadline）与 `TimerKey`，时间单位为毫秒（millisecond）。两类队列（queue）共享 `slot`，每项任务（task）只保存一份。
+
+`pop` 推进内部时间（internal time）时，每当整个多层时间轮（timing wheel）完成一个周期（cycle），便检查堆（heap）顶端，将剩余刻度（tick）小于轮容量（wheel capacity）的任务（task）通过 `move_from_external` 按键（key）迁入（migrate）时间轮（timing wheel）；无需等待任务（task）到期。堆（heap）按截止时间（deadline）排序（sort），外部队列（external queue）按插入顺序（insertion order）组织，因此要迁移（migrate）的键（key）不一定是队尾键（tail key）。迁移（migration）保持原取消键（cancellation key），后续仍可用它取消（cancel）任务（task）。
+
+## 0.7 依赖迁移（dependency migration）
+
+使用 `pi_slot_wheel = "0.7"` 和 `pi_slot_deque = "0.6"`，间接依赖（transitive dependency）使用 `pi_slotmap = "0.6"`；时间轮（timing wheel）和槽映射（slotmap）统一使用 `pi_key = "0.4"`。直接声明这些依赖（dependency）或使用返回键（key）的调用方（caller）应同步升级，避免混用不同版本的键类型（key type）和特征（trait）。相对主分支（master）的 `0.6.0`，`Timer` 的公开方法（public method）调用方式不变；相对原 `nightly-1.98.0` 的旧接口（API），仍须按前表迁移（migration）。
+
+保留主分支（master）的按键迁移修正（key-based migration fix）：多个远期任务（task）的到期顺序与插入顺序不同时，仍按正确的键（key）迁入时间轮（timing wheel），并保持取消键（cancellation key）有效。
+
 ## 方法语义
 
 | 方法 | 行为 |
@@ -50,8 +77,14 @@ assert_eq!(timer.count(), 0);
 
 ## Rust 工具链（toolchain）与依赖（dependency）
 
-本分支面向 Rust `1.98.0-nightly` 及后续版本。可以用指定的工具链（toolchain）执行 `cargo build --all-targets --all-features` 和 `cargo test --all-features`。
+本分支面向 Rust `1.98.0-nightly` 及后续版本。可用对应工具链（toolchain）执行 `cargo build --all-targets --all-features`、`cargo test --all-features` 及 `cargo build --release --all-features`；本次已验证 Rust `1.98.0-nightly` 和 `1.99.0-nightly`。
 
-上游 `pi_slot_wheel 0.5.1` 所需的 `pi_slot_deque 0.4.1/0.4.2` 已撤回（yanked），其依赖声明（dependency declaration）会解析到接口（API）不同的 `0.4.0`。因此，本库通过路径依赖（path dependency）使用 [随库附带的源码副本（vendored copy）](vendor/pi_slot_wheel/Cargo.toml)：保留上游提交（commit）`7d2aa1093d2616124edd81d59fa601c6ef4bb723` 的源码与测试（test），仅将依赖（dependency）更新为 `pi_slot_deque 0.5` 与 `pi_key 0.4`。
+以下依赖约束（dependency requirement）使用 crates.io 正式发布版本（release version），仅指定主版本号（major version）与次要版本号（minor version）：
 
-这套配置（configuration）可随本库的路径依赖（path dependency）或 Git 依赖（Git dependency）传递给使用者，无须使用者另设补丁（patch）。发布到 crates.io 前，需要先发布修正后的定时轮依赖（timing wheel dependency）并恢复相应的版本依赖（version dependency）。
+```toml
+[dependencies]
+pi_slot_wheel = "0.7"
+pi_slot_deque = "0.6"
+```
+
+`pi_slotmap` 由 `pi_slot_deque` 间接引入，其依赖约束（dependency requirement）为 `"0.6"`，无需在本库重复声明。本次解析结果（resolution）为 `pi_slot_wheel 0.7.0`、`pi_slot_deque 0.6.0`、`pi_slotmap 0.6.0`。后续更新修订版本（patch version）时，应重新核对实际解析结果（resolution）和接口兼容性（API compatibility）。

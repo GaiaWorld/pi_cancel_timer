@@ -2,7 +2,8 @@
 //!
 //! 所有时间参数均为调用方同一时钟原点下的 `u64` 毫秒值，本库不读取系统时钟。
 //! 使用 `Timer::new` 指定起点，随后由 `pop` 按传入的时间推进内部刻度。
-//! 近期任务放入时间轮，远期任务在堆中按绝对到期时间排序；迁入轮时取消键保持不变。
+//! 所有任务（task）保存在共享存储（shared storage）中；远期任务（task）由外部队列（external queue）组织，堆（heap）仅保存到期时间（deadline）与键（key）。
+//! 时间轮（timing wheel）完成完整周期（cycle）时，按堆（heap）顶端的键（key）将进入覆盖范围的任务（task）迁入轮，取消键（cancellation key）保持不变。
 //!
 //! # 示例
 //!
@@ -212,6 +213,8 @@ impl<T, const N0: usize, const N: usize, const L: usize, const PRECISION_MS: u64
     fn roll(&mut self) {
         self.elapsed_ticks += 1;
         if self.wheel.roll(&mut self.slot) {
+            // `tests::overflow_tasks_migrate_in_deadline_order_with_stable_keys` 验证
+            // 按截止时间（deadline）选择非队尾键（key）的迁移（migration）。
             while let Some(&Reverse((deadline, key))) = self.heap.peek() {
                 if !self.slot.contains_key(key) {
                     self.heap.pop();
@@ -299,6 +302,32 @@ mod tests {
         assert_eq!(timer.pop(116), None);
         assert_eq!(timer.cancel(key), Some("moved"));
         assert_eq!(timer.pop(117), None);
+    }
+
+    // 验证 `schedule_at`、`pop`、`cancel` 和 `count`：以 8 个刻度（tick）为轮容量（wheel capacity），
+    // 按乱序截止时间（deadline）插入四项轮外任务（task），使首次迁移（migration）选择非队尾键（key）。
+    // 断言到期顺序、迁移（migration）前后取消键（cancellation key）的有效性及最终任务计数（task count）。
+    #[test]
+    fn overflow_tasks_migrate_in_deadline_order_with_stable_keys() {
+        let mut timer: Timer<&str, 4, 2, 1> = Timer::new(100);
+        let late = timer.schedule_at(125, "late");
+        let early = timer.schedule_at(109, "early");
+        let middle = timer.schedule_at(114, "middle");
+        let tail = timer.schedule_at(130, "tail");
+        assert_eq!(timer.count(), 4);
+        assert_eq!(timer.pop(108), None);
+        assert_eq!(timer.external.len(), 2);
+        assert_eq!(timer.pop(109), Some("early"));
+        assert_eq!(timer.cancel(early), None);
+        assert_eq!(timer.cancel(middle), Some("middle"));
+        assert_eq!(timer.count(), 2);
+        assert_eq!(timer.pop(124), None);
+        assert_eq!(timer.pop(125), Some("late"));
+        assert_eq!(timer.cancel(late), None);
+        assert_eq!(timer.pop(129), None);
+        assert_eq!(timer.cancel(tail), Some("tail"));
+        assert_eq!(timer.pop(140), None);
+        assert_eq!(timer.count(), 0);
     }
 
     #[test]
