@@ -4,3 +4,10 @@
 /.cargo
 /.idea
 /Cargo.lock
+/vendor/pi_slot_wheel/Cargo.lock
+/*.log
+/.codex
+/docs
+AGENTS.md
+agent-skills
+/.agent_guide/
